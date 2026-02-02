@@ -1,0 +1,21 @@
+@import 'tailwindcss';
+@plugin 'daisyui';
+@plugin 'daisyui/theme' {
+	name: 'black';
+	default: true;
+	color-scheme: dark;
+
+	--color-primary: oklch(92.2% 0 0);
+	--color-primary-content: oklch(20.5% 0 0);
+	--color-secondary: oklch(26.9% 0 0);
+	--color-secondary-content: oklch(98.5% 0 0);
+
+	--radius-selector: 2rem;
+	--radius-field: 0.5rem;
+	--radius-box: 1rem;
+}
+
+html,
+body {
+	@apply h-full w-full overflow-hidden bg-base-100;
+}
