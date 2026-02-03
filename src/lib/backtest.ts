@@ -6,12 +6,14 @@ import { getDailyBudgetFromHolders } from './server/dca';
 export type BacktestConfig = {
 	monthlyBudgetUSD: number;
 	smaWindow: number;
+	twoHundredWeekMovingAverage: Record<string, number | null>;
 };
 
 export type BacktestDay = {
 	date: string;
 
 	holdersRaw: number;
+	holdersAdjusted: number;
 	holdersSMA: number;
 
 	bandLabel: string;
@@ -22,6 +24,7 @@ export type BacktestDay = {
 
 	btcPriceUSD: number;
 	btcBought: number;
+	twoHundredWeekMovingAveragePriceUSD: number | null;
 
 	usdSpentToday: number;
 	feePaidUSD: number;
@@ -30,6 +33,9 @@ export type BacktestDay = {
 
 	cumulativeUSDSpent: number;
 	cumulativeBTC: number;
+
+	adjustedHoldersForBand: number;
+	ma200DistancePct: number;
 };
 
 export type BacktestResult = {
@@ -64,9 +70,10 @@ function smaAt(series: HolderPoint[], idx: number, window: number): number | nul
 export function runBacktest(
 	holdersSeries: HolderPoint[],
 	btcPriceLookup: (date: string) => number | null,
+
 	config: BacktestConfig
 ): BacktestResult {
-	const { monthlyBudgetUSD, smaWindow } = config;
+	const { monthlyBudgetUSD, smaWindow, twoHundredWeekMovingAverage } = config;
 
 	let cumulativeUSDSpent = 0;
 	let cumulativeBTC = 0;
@@ -82,9 +89,16 @@ export function runBacktest(
 		if (sma === null) continue;
 
 		const btcPriceUSD = btcPriceLookup(point.date);
+		const twoHundredWeekMovingAveragePriceUSD = twoHundredWeekMovingAverage[point.date];
+
 		if (!btcPriceUSD) continue;
 
-		const decision = getDailyBudgetFromHolders(point.supply_in_profit_pct, monthlyBudgetUSD);
+		const decision = getDailyBudgetFromHolders(
+			point.supply_in_profit_pct,
+			monthlyBudgetUSD,
+			btcPriceUSD,
+			twoHundredWeekMovingAveragePriceUSD
+		);
 
 		// 1 Receive today's budget
 		cashBalanceUSD += decision.baseDailyBudget;
@@ -109,15 +123,22 @@ export function runBacktest(
 		cumulativeUSDSpent += usdSpentToday;
 		cumulativeBTC += btcBought;
 
+		const adjustedHolders = adjustHoldersFor200Wma(
+			point.supply_in_profit_pct,
+			btcPriceUSD,
+			twoHundredWeekMovingAveragePriceUSD
+		);
+
 		days.push({
 			date: point.date,
 
 			holdersRaw: point.supply_in_profit_pct,
+			holdersAdjusted: decision.holdersAdjusted,
 			holdersSMA: sma,
 
 			bandLabel: decision.band.label,
 			multiplier: decision.band.multiplier,
-
+			twoHundredWeekMovingAveragePriceUSD: twoHundredWeekMovingAveragePriceUSD,
 			baseDailyBudget: decision.baseDailyBudget,
 			adjustedDailyBudget: desiredSpend,
 
@@ -129,7 +150,14 @@ export function runBacktest(
 
 			cumulativeUSDSpent: round2(cumulativeUSDSpent),
 			cumulativeBTC,
-			feePaidUSD: round2(feePaidUSD)
+			feePaidUSD: round2(feePaidUSD),
+
+			adjustedHoldersForBand: round2(adjustedHolders),
+			ma200DistancePct: round2(
+				((btcPriceUSD - (twoHundredWeekMovingAveragePriceUSD ?? 0)) /
+					(twoHundredWeekMovingAveragePriceUSD ?? 0)) *
+					100
+			)
 		});
 	}
 
@@ -150,4 +178,26 @@ export function runBacktest(
 
 function round2(n: number): number {
 	return Math.round(n * 100) / 100;
+}
+
+function adjustHoldersFor200Wma(
+	holdersInProfit: number,
+	price: number,
+	ma200: number | null
+): number {
+	if (!ma200) return holdersInProfit;
+
+	const distance = (price - ma200) / ma200;
+
+	// Bias ranges (in percentage points)
+	let adjustment = 0;
+
+	if (distance <= -0.4) adjustment = -20;
+	else if (distance <= -0.2) adjustment = -12;
+	else if (distance <= 0) adjustment = -5;
+	else if (distance <= 0.3) adjustment = +5;
+	else if (distance <= 0.6) adjustment = +12;
+	else adjustment = +20;
+
+	return Math.min(100, Math.max(0, holdersInProfit + adjustment));
 }

@@ -57,6 +57,8 @@
 		baseDailyBudget: number;
 		adjustedDailyBudget: number;
 		monthlyBudget: number;
+		holdersMultiplier: number;
+		// ma200Multiplier: number;
 	} | null = $state(null);
 	let currentPriceUSD = new Tween(0, {
 		duration: 600,
@@ -114,7 +116,6 @@
 
 	async function handleQuoteDebug() {
 		const data = await createAndGetStrikeQuote(dcaDecision?.adjustedDailyBudget ?? 0);
-		console.log(data);
 	}
 
 	async function refreshData() {
@@ -122,15 +123,10 @@
 		options = await getOptions();
 		purchaseHistory = JSON.parse(options.purchaseHistory);
 		const currentHolderProfitPercentage = await getHoldersValue();
-		dcaDecision = await getDcaDecision({
-			currentHolderProfitPercentage: currentHolderProfitPercentage,
-			monthlyBudget: options.monthlyBudget
-		});
 		const prices = await getStrikeCurrentPrice();
+
 		chartData = await loadChartData();
-		currentPriceUSD.target = parseFloat(prices.currentPriceUSD);
-		currentPriceGBP.target = parseFloat(prices.currentPriceGBP);
-		holdersInProfit.target = dcaDecision.holdersInProfit;
+
 		const movingAverageData = [
 			...chartData.map((data) => data.price),
 			Number(prices.currentPriceUSD)
@@ -138,6 +134,17 @@
 		fiftyWeekMovingAverage.target = Number(lastMovingAverage(movingAverageData, 50 * 7));
 		oneHundredWeekMovingAverage.target = Number(lastMovingAverage(movingAverageData, 100 * 7));
 		twoHundredWeekMovingAverage.target = Number(lastMovingAverage(movingAverageData, 200 * 7));
+
+		dcaDecision = await getDcaDecision({
+			rawHolderProfitPercentage: currentHolderProfitPercentage,
+			monthlyBudget: options.monthlyBudget,
+			price: Number(prices.currentPriceUSD),
+			ma200: twoHundredWeekMovingAverage.target as number
+		});
+
+		currentPriceUSD.target = parseFloat(prices.currentPriceUSD);
+		currentPriceGBP.target = parseFloat(prices.currentPriceGBP);
+		holdersInProfit.target = dcaDecision.holdersInProfit;
 	}
 
 	async function loadChartData() {
@@ -261,7 +268,7 @@
 			<div class="stat place-items-center rounded-2xl bg-base-200 card-border">
 				<div class="stat-title">Current DCA Multiplier</div>
 				<div in:fade class="stat-value">
-					{dcaDecision.band.multiplier}
+					{dcaDecision.holdersMultiplier}
 				</div>
 			</div>
 			<div class="stat place-items-center rounded-2xl bg-base-200 card-border">

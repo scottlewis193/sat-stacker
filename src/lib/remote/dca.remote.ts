@@ -7,7 +7,17 @@ export const getBands = query(async () => {
 
 export const getDcaDecision = query(
 	'unchecked',
-	async (data: { currentHolderProfitPercentage: number; monthlyBudget: number }) => {
-		return getDailyBudgetFromHolders(data.currentHolderProfitPercentage, data.monthlyBudget);
+	async (data: {
+		rawHolderProfitPercentage: number;
+		monthlyBudget: number;
+		price: number;
+		ma200: number;
+	}) => {
+		return getDailyBudgetFromHolders(
+			data.rawHolderProfitPercentage,
+			data.monthlyBudget,
+			data.price,
+			data.ma200
+		);
 	}
 );

@@ -11,10 +11,12 @@ export const backtest = query(
 		// ... fetch holdersSeries and priceHistory
 		const holdersSeries = await fetchHoldersDataset();
 		const priceHistory = await fetchBtcUsdPrices();
+		const twoHundredWeekMovingAverage = movingAverageByDate(priceHistory, 200 * 7);
 
 		let result = runBacktest(holdersSeries, (date) => priceHistory[date] ?? NaN, {
 			monthlyBudgetUSD,
-			smaWindow: 7
+			smaWindow: 7,
+			twoHundredWeekMovingAverage
 		});
 
 		// filter days to start from requested date
@@ -50,3 +52,43 @@ export const backtest = query(
 		};
 	}
 );
+
+function movingAverage(data: number[], period: number): (number | null)[] {
+	const result: (number | null)[] = new Array(data.length).fill(null);
+
+	for (let i = period - 1; i < data.length; i++) {
+		let sum = 0;
+		for (let j = i - period + 1; j <= i; j++) {
+			sum += data[j];
+		}
+		result[i] = sum / period;
+	}
+
+	return result;
+}
+
+//data is date: value
+function movingAverageByDate(
+	data: Record<string, number>,
+	period: number
+): Record<string, number | null> {
+	const entries = Object.entries(data).sort(([a], [b]) => a.localeCompare(b)); // ISO date-safe sort
+
+	const result: Record<string, number | null> = {};
+
+	for (let i = 0; i < entries.length; i++) {
+		if (i + 1 < period) {
+			result[entries[i][0]] = null;
+			continue;
+		}
+
+		let sum = 0;
+		for (let j = i - period + 1; j <= i; j++) {
+			sum += entries[j][1];
+		}
+
+		result[entries[i][0]] = sum / period;
+	}
+
+	return result;
+}

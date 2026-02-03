@@ -14,7 +14,6 @@
 		Tooltip,
 		Legend
 	} from 'chart.js';
-	import { getPrices } from '$lib/remote/prices.remote';
 
 	let { chartData }: { chartData: { time: string; price: number }[] | null } = $props();
 

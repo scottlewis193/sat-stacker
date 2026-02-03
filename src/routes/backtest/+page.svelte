@@ -31,9 +31,13 @@
 	let days: {
 		date: string;
 		cumulativeBTC: number;
+		cumulativeUSDBalance: number;
 		feePaidUSD: number;
 		btcPriceUSD: number;
+		btcBought: number;
+		twoHundredWeekMovingAveragePriceUSD: number;
 		holdersRaw: number;
+		holdersAdjusted: number;
 		profitPct: number;
 	}[] = $state([]);
 
@@ -53,25 +57,23 @@
 		error = null;
 
 		try {
-			// const res = await fetch(`/api/backtest?startDate=${startDate}`);
-			// const data = await res.json();
-
-			const backtestConfig = { startDate, monthlyBudgetUSD: monthlyBudget };
+			const backtestConfig = {
+				startDate,
+				monthlyBudgetUSD: monthlyBudget
+			};
 			const data = await backtest(backtestConfig);
-
-			// if (!data.ok) {
-			// 	error = data.error ?? 'Unknown error';
-			// 	loading = false;
-			// 	return;
-			// }
 
 			summary = data.summary;
 			days = data.days.map((d: any) => ({
 				date: d.date,
 				cumulativeBTC: d.cumulativeBTC,
+				cumulativeUSDBalance: d.cumulativeUSDBalance,
 				btcPriceUSD: d.btcPriceUSD,
+				btcBought: d.btcBought,
+				twoHundredWeekMovingAveragePriceUSD: d.twoHundredWeekMovingAveragePriceUSD,
 				feePaidUSD: d.feePaidUSD,
 				holdersRaw: d.holdersRaw ?? 0,
+				holdersAdjusted: d.holdersAdjusted ?? d.holdersRaw,
 				profitPct:
 					d.cumulativeBTC > 0 && d.cumulativeUSDSpent > 0
 						? ((d.cumulativeBTC * d.btcPriceUSD - d.cumulativeUSDSpent) / d.cumulativeUSDSpent) *
@@ -87,7 +89,7 @@
 				let startIndex: number | null = null;
 
 				days.forEach((d, i) => {
-					const inBand = d.holdersRaw >= band.min && d.holdersRaw <= band.max;
+					const inBand = d.holdersAdjusted >= band.min && d.holdersAdjusted <= band.max;
 
 					if (inBand && startIndex === null) {
 						startIndex = i;
@@ -142,6 +144,15 @@
 							fill: false,
 							tension: 0.2,
 							yAxisID: 'y2'
+						},
+						{
+							label: '200 Week Moving Average Price USD',
+							data: days.map((d) => d.twoHundredWeekMovingAveragePriceUSD),
+							borderColor: 'black',
+							backgroundColor: 'rgba(0,0,255,0.1)',
+							fill: false,
+							tension: 0.2,
+							yAxisID: 'y2'
 						}
 					]
 				},
@@ -168,7 +179,14 @@
 									const date = tooltipItem.label;
 									const day = days.find((d) => d.date === date);
 									const profitLabel = day ? `Profit %: ${day.profitPct.toFixed(2)}%` : '';
-									return [`${datasetLabel}: ${value}`, profitLabel];
+									const holdersLabel = day
+										? `Holders: ${day.holdersRaw.toFixed(1)}% → ${day.holdersAdjusted.toFixed(1)}%`
+										: '';
+									const cashBalanceLabel = day
+										? `Cash Balance: ${day.cumulativeUSDBalance.toFixed(2)}`
+										: '';
+
+									return [`${datasetLabel}: ${value}`, profitLabel, holdersLabel, cashBalanceLabel];
 								}
 							}
 						},
