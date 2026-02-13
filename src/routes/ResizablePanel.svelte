@@ -44,25 +44,47 @@
 		startHeight = container.getBoundingClientRect().height;
 
 		document.body.classList.add('select-none');
-		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+
+		window.addEventListener('pointermove', resize);
+		window.addEventListener('pointerup', endResize);
+		window.addEventListener('pointercancel', endResize);
+
+		document.body.style.cursor = 'row-resize';
 	}
 
 	function resize(e: PointerEvent) {
 		if (!resizing || !container) return;
 
 		const delta = e.clientY - startY;
-		const height = Math.min(maxHeight, Math.max(minHeight, startHeight + delta));
+		pendingHeight = Math.min(maxHeight, Math.max(minHeight, startHeight + delta));
 
-		container.style.height = `${height}px`;
-		if (persistKey) {
-			localStorage.setItem(persistKey, String(height));
+		if (rafId === null) {
+			rafId = requestAnimationFrame(applyResize);
 		}
 	}
 
-	function endResize(e: PointerEvent) {
+	function applyResize() {
+		if (!container || pendingHeight === null) return;
+
+		container.style.height = `${pendingHeight}px`;
+
+		rafId = null;
+	}
+
+	function endResize() {
 		resizing = false;
+
 		document.body.classList.remove('select-none');
-		(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+
+		window.removeEventListener('pointermove', resize);
+		window.removeEventListener('pointerup', endResize);
+		window.removeEventListener('pointercancel', endResize);
+
+		if (persistKey && container) {
+			localStorage.setItem(persistKey, container.offsetHeight.toString());
+		}
+
+		document.body.style.cursor = '';
 	}
 </script>
 
@@ -74,12 +96,9 @@
 	<!-- resize handle -->
 	<div class="absolute right-0 bottom-0 left-0 flex justify-center pb-2">
 		<button
-			class="btn h-1 w-12 cursor-row-resize btn-xs btn-primary"
+			class="btn h-1 w-12 cursor-row-resize touch-none btn-xs btn-primary"
 			aria-label="Resize panel"
 			onpointerdown={startResize}
-			onpointermove={resize}
-			onpointerup={endResize}
-			onpointercancel={endResize}
 		></button>
 	</div>
 </div>

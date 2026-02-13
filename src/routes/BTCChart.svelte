@@ -15,7 +15,10 @@
 		Legend
 	} from 'chart.js';
 
-	let { chartData }: { chartData: { time: string; price: number }[] | null } = $props();
+	let {
+		chartData,
+		rangeDays = 30
+	}: { chartData: { time: string; price: number }[] | null; rangeDays: number | null } = $props();
 
 	let chart: Chart | null = null;
 
@@ -36,15 +39,6 @@
 	// Selected time range (default: 90 days)
 
 	let scaleType: 'linear' | 'logarithmic' = 'logarithmic';
-
-	const ranges = [
-		{ label: '7D', days: 7 },
-		{ label: '30D', days: 30 },
-		{ label: '90D', days: 90 },
-		{ label: '1Y', days: 365 },
-		{ label: '5Y', days: 5 * 365 },
-		{ label: 'Max', days: 'max' }
-	];
 
 	function linearRegression(data: number[]): { slope: number; intercept: number } {
 		const n = data.length;
@@ -67,15 +61,85 @@
 		return { slope, intercept };
 	}
 
-	function movingAverage(data: number[], period: number): (number | null)[] {
-		const result: (number | null)[] = new Array(data.length).fill(null);
+	let colors = { text: '#ffffff' };
+
+	type PreparedPoint = {
+		price: number;
+		time: string;
+		ts: number;
+		label: string;
+	};
+
+	let prepared: PreparedPoint[] = [];
+
+	let MA50Full: (number | null)[] = [];
+	let MA100Full: (number | null)[] = [];
+	let MA200Full: (number | null)[] = [];
+
+	function prepareData(raw: { price: number; time: string }[]) {
+		prepared = raw.map((p) => {
+			const ts = new Date(p.time).getTime();
+			return {
+				price: p.price,
+				time: p.time,
+				ts,
+				label: new Date(ts).toDateString()
+			};
+		});
+
+		// Compute MAs once
+		MA50Full = movingAverageFast(prepared, 350).map((p) => p.price);
+
+		MA100Full = movingAverageFast(prepared, 700).map((p) => p.price);
+
+		MA200Full = movingAverageFast(prepared, 1400).map((p) => p.price);
+	}
+
+	function movingAverage(
+		data: { price: number; time: string }[],
+		period: number
+	): { price: number | null; time: string }[] {
+		const result: { price: number | null; time: string }[] = data.map((item) => ({
+			price: null,
+			time: item.time
+		}));
 
 		for (let i = period - 1; i < data.length; i++) {
 			let sum = 0;
 			for (let j = i - period + 1; j <= i; j++) {
-				sum += data[j];
+				sum += data[j].price;
 			}
-			result[i] = sum / period;
+
+			result[i] = { price: sum / period, time: data[i].time };
+		}
+
+		return result;
+	}
+
+	function movingAverageFast(
+		data: { price: number; time: string }[],
+		period: number
+	): { price: number | null; time: string }[] {
+		const result = new Array(data.length);
+
+		let sum = 0;
+
+		for (let i = 0; i < data.length; i++) {
+			sum += data[i].price;
+
+			if (i >= period) sum -= data[i - period].price;
+
+			if (i >= period - 1) {
+				result[i] = {
+					price: sum / period,
+					time: data[i].time
+				};
+			} else {
+				result[i] = {
+					price: null,
+					time: data[i].time
+				};
+			}
 		}
 
 		return result;
@@ -91,80 +155,89 @@
 	export function debouncedResize() {
 		clearTimeout(resizeTimeout);
 		resizeTimeout = setTimeout(() => {
-			chart?.resize();
+			resize();
 		}, 100);
 	}
 
 	async function render() {
-		if (!chartData) return;
-
-		const yValues = chartData.map((p: { price: number }) => p.price);
-		const { slope, intercept } = linearRegression(yValues);
-		// Weeks → days (BTC data is daily)
-		const MA_50W = movingAverage(yValues, 50 * 7);
-		const MA_100W = movingAverage(yValues, 100 * 7);
-		const MA_200W = movingAverage(yValues, 200 * 7);
-
-		// Compute trend line points
-		const trendLine = yValues.map((_: number, i: number) => intercept + slope * i);
+		if (!prepared.length) return;
 
 		const ctx = canvasEl.getContext('2d');
 		if (!ctx) return;
 
-		// DaisyUI theme-aware colors
-		const primary = getComputedStyle(document.documentElement)
-			.getPropertyValue('--color-primary')
-			.trim();
-		const textColor = getComputedStyle(document.documentElement)
-			.getPropertyValue('--color-base-content')
-			.trim();
-		const secondary = getComputedStyle(document.documentElement)
-			.getPropertyValue('--color-secondary')
-			.trim();
-		const errorColor = getComputedStyle(document.documentElement)
-			.getPropertyValue('--color-error')
-			.trim();
+		// Find slice start index
+		let startIndex = 0;
+		if (rangeDays) {
+			const cutoff = Date.now() - rangeDays * 86400000;
+			startIndex = prepared.findIndex((p) => p.ts > cutoff);
+			if (startIndex < 0) startIndex = prepared.length;
+		}
 
-		// If chart exists, destroy before drawing new one
-		if (chart) chart.destroy();
+		const slice = prepared.slice(startIndex);
 
+		// Build chart arrays in ONE pass
+		const xValues = new Array(slice.length);
+		const yValues = new Array(slice.length);
+
+		for (let i = 0; i < slice.length; i++) {
+			xValues[i] = slice[i].label;
+			yValues[i] = slice[i].price;
+		}
+
+		const MA_50W = MA50Full.slice(startIndex);
+		const MA_100W = MA100Full.slice(startIndex);
+		const MA_200W = MA200Full.slice(startIndex);
+
+		const { slope, intercept } = linearRegression(yValues);
+		const trendLine = yValues.map((_, i) => intercept + slope * i);
+
+		// ⭐ Update existing chart instead of destroying
+		if (chart) {
+			chart.data.labels = xValues;
+			chart.data.datasets[0].data = yValues;
+			chart.data.datasets[1].data = MA_50W;
+			chart.data.datasets[2].data = MA_100W;
+			chart.data.datasets[3].data = MA_200W;
+
+			chart.update('none');
+			return;
+		}
+
+		// ⭐ Create once
 		chart = new Chart(ctx, {
 			type: 'line',
 			data: {
-				labels: chartData.map((p: { time: string }) => p.time),
+				labels: xValues,
 				datasets: [
 					{
 						label: 'BTC Price',
-						data: chartData.map((p: { price: number }) => p.price),
-						borderColor: textColor,
-						backgroundColor: textColor + '33', // 20% alpha
-						borderWidth: 2,
-						pointRadius: 0,
+						data: yValues,
+						borderColor: colors.text,
+						backgroundColor: colors.text + '33',
+						borderWidth: 3,
+						pointStyle: false,
 						tension: 0.5
 					},
 					{
 						label: '50W MA',
 						data: MA_50W,
 						borderColor: 'oklch(26.9% 0 0)',
-						borderWidth: 1.5,
-						pointRadius: 0,
-						tension: 0.1
+						borderWidth: 3,
+						pointStyle: false
 					},
 					{
 						label: '100W MA',
 						data: MA_100W,
 						borderColor: 'oklch(26.9% 0 0)',
-						borderWidth: 1.5,
-						pointRadius: 0,
-						tension: 0.1
+						borderWidth: 3,
+						pointStyle: false
 					},
 					{
 						label: '200W MA',
 						data: MA_200W,
 						borderColor: 'oklch(26.9% 0 0)',
-						borderWidth: 1.5,
-						pointRadius: 0,
-						tension: 0.1
+						borderWidth: 3,
+						pointStyle: false
 					}
 				]
 			},
@@ -174,30 +247,21 @@
 				animation: false,
 
 				plugins: {
-					legend: {
-						display: false,
-						labels: {
-							color: textColor
-						}
-					},
-					tooltip: {
-						displayColors: false
+					legend: { display: false },
+
+					// BIG dataset accelerator
+					decimation: {
+						enabled: true,
+						algorithm: 'lttb',
+						samples: 500
 					}
 				},
+
 				scales: {
-					x: {
-						display: false,
-						ticks: {
-							color: textColor
-						}
-					},
+					x: { display: false },
 					y: {
 						display: false,
-						type: scaleType,
-						ticks: {
-							color: textColor,
-							backdropColor: textColor
-						}
+						type: scaleType
 					}
 				}
 			}
@@ -206,7 +270,16 @@
 
 	$effect(() => {
 		if (!chartData) return;
+		prepareData(chartData);
 		render();
+	});
+
+	onMount(() => {
+		colors = {
+			text: getComputedStyle(document.documentElement)
+				.getPropertyValue('--color-base-content')
+				.trim()
+		};
 	});
 
 	onDestroy(() => {

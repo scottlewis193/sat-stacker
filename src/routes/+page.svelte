@@ -90,6 +90,7 @@
 	let budgetEditMode = $state(false);
 	//svelte-ignore non_reactive_update
 	let monthlyBudgetInput: HTMLInputElement | null = null;
+	let rangeDays: number | null = $state(90);
 
 	async function fetchBalance() {
 		balances = await fetch('/api/balance').then((r) => r.json());
@@ -126,6 +127,11 @@
 		const prices = await getStrikeCurrentPrice();
 
 		chartData = await loadChartData();
+		const tomorrow = new Date().setDate(new Date().getDate() + 1);
+		chartData.push({
+			time: String(tomorrow),
+			price: parseFloat(prices.currentPriceUSD)
+		});
 
 		const movingAverageData = [
 			...chartData.map((data) => data.price),
@@ -204,6 +210,10 @@
 
 			timeLeft -= 1000;
 		}, 1000);
+	}
+
+	async function setRangeDays(days: number | null) {
+		rangeDays = days;
 	}
 
 	let chartContainer: HTMLElement | null = null;
@@ -353,7 +363,33 @@
 			maxHeight={900}
 			persistKey="btc-chart-height"
 		>
-			<BTCChart {chartData} />
+			<BTCChart {chartData} {rangeDays} />
+			<div class="absolute top-0 left-0 p-2">
+				<button
+					class={'btn btn-xs ' + (rangeDays === 7 ? 'btn-primary' : 'btn-secondary')}
+					onclick={() => setRangeDays(7)}>7D</button
+				>
+				<button
+					class={'btn btn-xs ' + (rangeDays === 30 ? 'btn-primary' : 'btn-secondary')}
+					onclick={() => setRangeDays(30)}>30D</button
+				>
+				<button
+					class={'btn btn-xs ' + (rangeDays === 90 ? 'btn-primary' : 'btn-secondary')}
+					onclick={() => setRangeDays(90)}>90D</button
+				>
+				<button
+					class={'btn btn-xs ' + (rangeDays === 365 ? 'btn-primary' : 'btn-secondary')}
+					onclick={() => setRangeDays(365)}>1Y</button
+				>
+				<button
+					class={'btn btn-xs ' + (rangeDays === 1460 ? 'btn-primary' : 'btn-secondary')}
+					onclick={() => setRangeDays(1460)}>4Y</button
+				>
+				<button
+					class={'btn btn-xs ' + (rangeDays === null ? 'btn-primary' : 'btn-secondary')}
+					onclick={() => setRangeDays(null)}>All</button
+				>
+			</div>
 		</ResizablePanel>
 	</section>
 
